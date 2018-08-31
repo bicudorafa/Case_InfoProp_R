@@ -1,0 +1,326 @@
+---
+title: "Case_InfroProp"
+author: "Rafael Bicudo Rosa"
+date: "28 de agosto de 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+
+## Business Case - InfoProp
+
+O objetivo deste trabalho é realizar uma análise minuciosa de dados imobiliários da cidade de São Paulo no ano de 2017. Através da limpeza e a vizualização dos relacionamentos entre as variáveis disponíves, a ideia é tentar captar insights importantes e, em seguida, construir um modelo de precificação baseado nas informações encontradas.
+
+## Etapa 1 - Coleta dos Dados
+
+Para iniciar a análise, começarei pela abertura do arquivo através da função base do sistema e, em seguida, com o auxílio do pacote dplyr, tranformá-la-ei em um tbl.df para obter as melhores possibilidades de manipulação de dados.
+
+
+```{r coleta}
+# Carrehando pacote necessario
+library(dplyr)
+
+# Obtencao dos dados
+imoveis <- as.tbl(read.csv2('Crawler_vivareal_venda_2017_desafio.csv', stringsAsFactors = F, encoding = "UTF-8",
+                            na.strings = ""))
+glimpse(imoveis)
+
+```
+
+
+## Etapa 2 - Limpeza e Preparação dos dados
+
+O primeiro passo será a limpeza dos dados. Após realizar a abertura do arquivo, identifiquei uma a uma as necessidades de correção nas variáveis, das quais se destacam: problema nos encodings das variáveis data, latitude e longitude; e o formato de texto das variáveis numéricas. Os pacotes selecionados para tais tarefas foram o lubridate e stringr. Ao término do processo, executei mais uma releitura do arquivo, mas, desta vez, com suas informações muito mais inteligíveis. 
+
+```{r normalizando}
+### Data celaning
+imoveis_clean = imoveis
+
+# Pacotes necessários
+library(stringr)
+library(lubridate)
+
+# data
+names(imoveis_clean) <- str_replace(names(imoveis_clean), 'X.U.FEFF.date', 'Data')
+imoveis_clean$Data <- as.Date(imoveis$X.U.FEFF.date, format = '%d/%m/%Y')
+year(imoveis_clean$Data) <- year(imoveis_clean$Data)+2000
+
+# lat e long
+imoveis_clean$longitude <- gsub(".", "", imoveis$longitude, fixed = TRUE) %>%
+  sub("(\\d{2})", "\\1\\.", .) %>% 
+  as.numeric()
+imoveis_clean$latitude <- gsub(".", "", imoveis$latitude, fixed = TRUE) %>%
+  sub("(\\d{2})", "\\1\\.", .) %>% 
+  as.numeric()
+
+# price_by_sqm
+imoveis_clean$price_by_sqm <- as.numeric(imoveis_clean$price_by_sqm)
+
+# condominium_fee e iptu
+imoveis_clean$condominium_fee <- str_replace_all(imoveis$condominium_fee, 'R\\$', '') %>% 
+  str_replace_all('[:punct:]', '') %>% 
+  as.numeric()
+
+imoveis_clean$iptu <- str_replace_all(imoveis$iptu, 'R\\$', '') %>% 
+  str_replace_all('[:punct:]', '') %>% 
+  as.numeric()
+
+# visualizacao do novo df
+glimpse(imoveis_clean)
+
+```
+
+
+## Etapa 3 - Análise Exploratória dos Dados
+
+Com a preparacao dos dados concluída, pode-se prosseguir à sua análise exploratória mais minuciosa. Para tal objetivo, procederemos a uma série de visualizações para ilustrar melhor a relação entre a variável de interesse em relação às demais.
+
+
+```{r EDA 1}
+## Visualizacao interativa
+library(leaflet)
+
+leaflet(data = imoveis_clean) %>% addTiles() %>% 
+  addMarkers(~longitude, ~latitude, popup = ~as.character(property_d), 
+             clusterOptions = markerClusterOptions()
+  )
+
+```
+
+
+A começar com uma visualização interativa dos imóveis, através do pacote leaflet, conseguimos notar alguns pontos muito distantes da maioria, configurando uma espécie de outlier geográfico a ser analisado em seguida.
+
+
+```{r EDA 2}
+# visualizacao das variaveis continuas
+library(ggplot2)
+
+cont_vars <- c('area', 'iptu','condominium_fee')
+plots_cont <- list()
+for (var in cont_vars) {
+  plots_cont[[var]] <- ggplot(imoveis_clean, aes_string(log(imoveis_clean[[var]]), log(imoveis_clean[['price']]))) + 
+    geom_point() +
+    geom_smooth(method = lm, se = F) + 
+    ggtitle(paste(var, 'x price')) +
+    theme_minimal()
+  print(plots_cont[[var]])
+}
+```
+
+
+Com o auxílio do pacote ggplot2, agora, podemos vislumbrar a relação gráfica entre as variáveis contínuas do dataframe. É interessante notar a ocorrência de 2 outliers muito grandes na relação entre 'price' e 'area', assim temos as próximas observações a serem olhadas mais de perto logo em breve.
+
+
+```{r}
+# visualizacao das variaveis factor
+fact_vars <- c('bairro', 'rooms', 'bathrooms','garage')
+plots_fact <- list()
+for (var in fact_vars) {
+  plots_fact[[var]] <- ggplot(imoveis_clean, aes_string(x = as.factor(imoveis_clean[[var]]), log(imoveis_clean[['price']]))) + 
+    geom_point() +
+    geom_boxplot() + 
+    ggtitle(paste(var, 'x price')) +
+    theme_minimal()
+  print(plots_fact[[var]])
+}
+```
+
+
+Por fim tomamos notas das relações entre as variáveis categóricas com auxílio do boxplots. Praticamente, todas as variáveis possuem algum outlier interessante aqui, assim faremos uma sensível análise caso a caso para entender melhor esses pontos fora da curva.
+
+
+## Etapa 4 - Outliers
+
+Nesta seção, realizaremos um breve estudo dos outliers identificados ao longo da análise exploratória para melhor entender seus aparecimentos.
+
+
+```{r performance}
+## Investigacao outliers
+imoveis_clean %>% filter(property_d %in% c(53512644, 83712188, 80671730))
+imoveis_clean %>% filter(log(area) > 10 | log(price) < 10)
+imoveis_clean %>% filter(bathrooms > 9)
+imoveis_clean %>% filter(garage > 9)
+
+# por estarem completamente fora do espaço geografico do resto da amostra, colocarei seus bairros como NA
+imoveis_clean$bairro[which(imoveis$property_d %in% c(53512644, 83712188, 80671730))] <- NA
+
+# o apartamento com mais de 54 banheiros parece muito fora da media em relacao ao seu preco e area
+imoveis_clean$bathrooms[which(imoveis$bathrooms == 54)] <- NA
+
+```
+
+
+Os pontos muito distantes dos demais geograficamente tiveram sua localização mudada para NA pelo possibildiade de poderem gerar algum tipo de viés na análise do futuro modelo. Os valores discrepantes de preço e área se mantiveram ao passo de terem congruência com os demais e não haver mais fontes para melhor checar a sua origem. Como o único imóvel com um número fora da média de banheiros não seguia outros em relação a área e valor, optei por considerá-lo um erro também. Por fim garagens teve destino similar à análise de preço e área.
+
+
+## Etapa 5 - Engenharia de Variáveis
+
+
+Como as variáveis de identificação, em seu estado bruto, não são relevantes à análise, executarei agora a construção de outras com possibilidade maior de fornecer informação quando na contrução do futuro modelo preditivo. Após realizar sua criação, faço plots demonstrando suas informações em relação às variáveis antigas.
+
+
+```{r EDA}
+# criacao dos dfs comas supostas novas variaveis de interesse
+imoveis_clean_rua <- imoveis_clean %>% 
+  group_by(rua) %>%
+  summarise(total_a = n(),
+            media_p = mean(price_by_sqm, na.rm = T)) %>%
+  filter(!(is.na(rua)))
+
+imoveis_clean_condominio <- imoveis_clean %>% 
+  group_by(condominio) %>%
+  summarise(total_a = n(),
+            media_p = mean(price_by_sqm, na.rm = T)) %>%
+  filter(!(is.na(condominio))) 
+
+# como ha agencias sem nenhuma entrada, filtro antes de achar as variaves finais
+imoveis_clean_agent <- imoveis_clean %>% 
+  group_by(agent) %>%
+  summarise(total_a = n(),
+            media_p = mean(price_by_sqm, na.rm = T)) %>%
+  filter(!(is.na(agent))) %>% 
+  filter(!(is.na(media_p))) 
+
+# plot total_a
+var_t <- list(imoveis_clean_rua %>% arrange(desc(total_a)), 
+              imoveis_clean_condominio %>% arrange(desc(total_a)), 
+              imoveis_clean_agent %>% arrange(desc(total_a)))
+
+plots_total <- list()
+
+for (i in 1:length(var_t)){
+  plots_total[[i]] <- ggplot(var_t[[i]], aes(x = factor(var_t[[i]][[1]], levels = var_t[[i]][[1]]), 
+                                             y = total_a)) + 
+    geom_bar(stat="identity", width=.5) +
+    coord_flip() +
+    labs(title=paste('Anúncios x ', names(var_t[[i]])[[1]]), 
+         x = names(names(var_t[[i]])[[1]]),
+         y = 'Anúncios') 
+  
+  print(plots_total[[i]])
+}
+
+# plot da media_p 
+var_m <- list(imoveis_clean_rua %>% arrange(desc(media_p)), 
+              imoveis_clean_condominio %>% arrange(desc(media_p)), 
+              imoveis_clean_agent %>% arrange(desc(media_p)))
+
+plots_media <- list()
+
+for (i in 1:length(var_m)){
+  plots_media[[i]] <- ggplot(var_m[[i]], aes(x = factor(var_m[[i]][[1]], levels = var_m[[i]][[1]]), 
+                                             y = media_p)) + 
+    geom_bar(stat="identity", width=.5) +
+    coord_flip() +
+    labs(title=paste('Media x ', names(var_m[[i]])[[1]]), 
+         x = names(names(var_m[[i]])[[1]]),
+         y = 'Media') 
+  
+  print(plots_media[[i]])
+}
+
+# variaveis criadas
+vars_rua <- imoveis_clean_rua %>% select(rua, anuncio_rua = total_a, valores_rua = media_p) 
+vars_condo <- imoveis_clean_condominio %>% select(condominio, anuncio_condo = total_a, valores_condo = media_p)  
+vars_agente <- imoveis_clean_agent %>% select(agent, anuncio_agente = total_a, valores_agente = media_p) 
+```
+
+
+## Etapa 5 - Modelos Preditivos
+ 
+Após terminar a análise exploratória, prossegue-se às etapas de criação do modelo preditivo: escolher as variáveis de relevância, realizar as etapas de pré processamento e, por fim, executar a análise preditiva. Para inicar o trabalho, começarei pela exclusão das variáveis com baixo nível de variação, além das identificadoras.
+
+
+```{r seleção}
+# Modelo final
+imoveis_final <- imoveis_clean %>% 
+  left_join(vars_rua) %>% 
+  left_join(vars_condo) %>% 
+  left_join(vars_agente) %>% 
+  select(-c(Data, rua, numero, bairro, price_by_sqm, condominio, agent, agent_number, latitude, longitude, property_d, url))
+  
+glimpse(imoveis_final)
+```
+ 
+
+Em seguida, prosseguir-se-á à separação dos dados em set de treino e teste. É sempre recomendável realizar essa ação antes de se executar qualquer trabalho preditivo para evitar qualquer tipo de viés de seleção. Ao longo de toda esta etapa, faremos uso do pacote de Machine Learnig Caret e seus componentes auxiliares como o mlbench. Também vale ressaltar a criação de uma função que transforma, de forma automática, variáveis do tipo integer ao factor.
+
+
+```{r train test}
+
+library(caret)
+library(mlbench)
+set.seed(666)
+
+sample <- createDataPartition(imoveis_final$price, times = 1, list = F, p = .8)
+train_sample <- imoveis_final[sample, ]
+test_sample <- imoveis_final[-sample, ]
+
+# funcao para transformar variaveis em fact
+toFactor <- function(df, features) {
+  for (feature in features) {
+    df[[feature]] <- factor(df[[feature]], exclude = NULL)
+  }
+  return(df)
+}
+
+fact_vars_final <- c('rooms', 'bathrooms','garage')
+train_fact <- toFactor(train_sample, fact_vars_final)
+test_fact <- toFactor(test_sample, fact_vars_final)
+```
+
+
+## Etapa 6 - Modelo Preditivo
+
+
+Chega-se à parte mais relevante do trabalho: construção do modelo, seleção das melhores variáveis, e constatação de seu poder preditivo. A primeira etapa consiste na preparação dos dados através da padronização das variáveis contínuas, e o tratamento dos valores NA. Como há muita informação com algum valor faltante e não há a possibilidade de determinar o motivo de seus não aparecimentos, procederei com um método de imputação a partir do algorítmo de KNN. Logo em seguida, parte-se à contrução do primeiro modelo e à análise das variáveis mais importantes. Vale resaltar no uso do parâmetro de controle, com a escolha da 10 validações cruzadas, com o intuito de eliminar ainda mais riscos de overfitting dos parâmetros.
+
+
+
+```{r modelo, results = "hide", warning = FALSE}
+# Pré processadores
+preprocessParams_train <- preProcess(train_fact, method=c("knnImpute", "center", "scale"))
+preprocessParams_test <- preProcess(test_fact, method=c("knnImpute", "center", "scale"))
+
+# Dfs transformados
+train_preproc <- predict(preprocessParams_train, train_fact)
+test_preproc <- predict(preprocessParams_test, test_fact)
+
+# Controle
+control <- trainControl(method="cv", number=10)
+
+# Modelo
+model1 <- train(price ~ .,
+                data = train_preproc,
+                method = "lm",
+                trControl = control,
+                metric = 'RMSE')
+
+plot(varImp(model1, scale=FALSE))
+```
+
+Assim como visto acima, as variáveis com maior poder explicativo são o número de garagens, uma das variaveis criadas e a taxa paga de condomínio. No entanto, para ter plena certeza qual a melhor combinação a ser usada, usarei mão de um modelo de seleção recursivo baseado em modelos lineares.
+
+
+```{r rfe}
+control_rfe <- rfeControl(functions=lmFuncs, method="cv", number=10)
+# run the RFE algorithm
+results <- rfe(price ~ ., data = train_preproc, sizes=c(1:15), rfeControl=control_rfe)
+# summarize the results
+varImp(results, scale=FALSE)
+plot(results, type=c("g", "o"))
+```
+
+Assim como visto acima, mesmo com o alto número de variáveis, todas contribuem de forma positiva para a melhor acurácia do modelo, portanto não necessitando de uma nova seleção e construção de novo treino. Por fim usaremos a mesma métrica utilizada para selecionar as melhores variáveis para validar quão bem o modelo se ajusta aos dados de teste.
+
+```{r rmse}
+# score modelo
+pred <- predict(model1, test_preproc)
+modelvalues<-data.frame(obs = test_preproc$price, pred= pred)
+defaultSummary(modelvalues)
+```
+
+
+## FIM
