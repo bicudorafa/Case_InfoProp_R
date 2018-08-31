@@ -5,4 +5,4 @@ Este trabalho é baseado em um case oferecido pela empresa InfoProp para propone
 A análise foi feita em R, através do RStudio, com a utilização dos principais pacotes do conjunto Tidyverse. Vale ressaltar, também, o uso do Leaflet para visualização interativa e o Caret para as análises de aprendizado de máquina. O estilo de programação é bem similar ao recomendado pelo Google.
 
 # Orientações
-O trabalho possui 6 arquivos: o script usado para gear os objetos e com anotações relevantes ao desenvolvimento e próximos passos, o arquivo csv contendo as informações, um pdf contendo detalhes e instruções do case, um Rmd com o esqueleto do relatório e esse em si em formato html.
+O trabalho possui 6 arquivos: o script usado para gerar os objetos e com anotações relevantes ao desenvolvimento e próximos passos, o arquivo csv contendo as informações, um pdf contendo detalhes e instruções do case, um Rmd com o esqueleto do relatório e esse em si em formato html.
