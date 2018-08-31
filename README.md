@@ -1,0 +1,2 @@
+# Case_InfoProp_R
+Este trabalho é baseado em um case oferecido pela empresa InfoProp para proponentes a um cargo na área de DS da empresa. Os dados, em sua forma bruta, são uma seleção de imóveis à venda em São Paulo em um dado período juntamente a uma série de características sobre esses. O objetivo consistiu em realizar a limpeza, análise exploratória dos dados e, por fim, gerar um modelo preditivo para auxiliar na melhor tomada de decisão quanto aos preços reais dos imóveis.
