@@ -72,16 +72,6 @@ for (var in cont_vars) {
 
 # visualizacao das variaveis factor
 fact_vars <- c('bairro', 'rooms', 'bathrooms','garage')
-plots_fact <- list()
-for (var in fact_vars) {
-  plots_fact[[var]] <- ggplot(imoveis_clean, aes_string(x = as.factor(imoveis_clean[[var]]), log(imoveis_clean[['price']]))) + 
-    geom_boxplot() +
-    stat_summary(fun.data = give.n, geom = "text", fun.y = median,
-                 position = position_dodge(width = 0.75)) +
-    ggtitle(paste(var, 'x price')) +
-    theme_minimal()
-  print(plots_fact[[var]])
-}
 
 plots_fact_c <- list()
 for (var in fact_vars) {
@@ -94,7 +84,7 @@ for (var in fact_vars) {
 
 ## Investigacao outliers
 # imoveis_clean %>% filter(property_d %in% c(53512644, 83712188, 80671730))
-View(imoveis_clean %>% filter(log(area) > 10 | log(price) < 10 | log(condominium_fee) > 10))
+imoveis_clean %>% filter(log(area) > 10 | log(price) < 10 | log(condominium_fee) > 10)
 imoveis_clean %>% filter(rooms > 4) %>% arrange(desc(rooms))
 imoveis_clean %>% filter(bathrooms > 6) %>% arrange(desc(bathrooms))
 imoveis_clean %>% filter(garage > 5) %>% arrange(desc(garage))
@@ -114,10 +104,11 @@ imoveis_clean$bathrooms[which(imoveis$bathrooms == 54)] <- NA
 
 # agregação dos valores para não causar overfitting pela baixa quantidade de valores
 roomsBathGarage <- imoveis_clean %>% 
-  select(c(rooms, bathrooms, garage)) %>% 
+  select(c(rooms, bathrooms, garage, property_d)) %>% 
   mutate(rooms_coerc = ifelse(rooms > 4, 4, rooms),
          bathrooms_coerc = ifelse(bathrooms > 6, 6, bathrooms),
-         garage_coerc = ifelse(garage > 5, 5, garage))
+         garage_coerc = ifelse(garage > 5, 5, garage)) %>% 
+  select(-c(rooms, bathrooms, garage))
 
 ## Procurar agregacoes uteis em rua, condominio e agente
 
@@ -233,86 +224,10 @@ vars_agente <- imoveis_clean_agent %>% select(agent, anuncio_agente = total_a, v
 
 # df final para analise e com variaveis novas
 imoveis_final <- imoveis_clean %>%
-  left_join(roomsBathGarage) %>% 
+  left_join(roomsBathGarage, by = c('property_d')) %>% 
   left_join(vars_rua) %>% 
   left_join(vars_condo) %>% 
   left_join(vars_agente) %>% 
   select(-c(Data, rua, numero, bairro, price_by_sqm, condominio, rooms, bathrooms, garage,agent, agent_number, 
             latitude, longitude, property_d, url))
 glimpse(imoveis_final)
-## dados de teste e treino
-
-# Carregando pacote necessario e iniciando seed do projeto
-library(caret)
-library(mlbench)
-set.seed(666)
-
-# Criacao de versao usavel do df original para comparacao
-imoveis_bench <- imoveis_clean %>%
-  filter(!(price == 18000)) %>% 
-  select(-c(Data, rua, numero, bairro, price_by_sqm, condominio, agent, agent_number, latitude, 
-            longitude, property_d, url))
-
-# separação das amostras de treino e teste
-sample <- createDataPartition(imoveis_final$price, times = 1, list = F, p = .7)
-train_sample <- imoveis_final[sample, ]
-test_sample <- imoveis_final[-sample, ]
-
-train_sample_bench <- imoveis_bench[sample, ]
-test_sample_bench <- imoveis_bench[-sample, ]
-
-# funcao para transformar variaveis em fact
-toFactor <- function(df, features) {
-  for (feature in features) {
-    df[[feature]] <- factor(df[[feature]], exclude = NULL)
-    # exclude é importantíssimo pra considerar NA como classe
-  }
-  return(df)
-}
-
-train_fact <- toFactor(train_sample, c('rooms_coerc', 'bathrooms_coerc','garage_coerc'))
-test_fact <- toFactor(test_sample, c('rooms_coerc', 'bathrooms_coerc','garage_coerc'))
-
-train_fact_bench <- toFactor(train_sample_bench, c('rooms', 'bathrooms','garage'))
-test_fact_bench <- toFactor(test_sample_bench, c('rooms', 'bathrooms','garage'))
-
-# Pre processamento dos sets
-
-# knnImpute é extremamente lento, só é usável em outas situações. Optei pelo median
-preprocessParams_train <- preProcess(train_fact, method=c("medianImpute", "center", "scale"))
-preprocessParams_test <- preProcess(test_fact, method=c("medianImpute", "center", "scale"))
-
-preprocessParams_train_bench <- preProcess(train_fact_bench, method=c("medianImpute", "center", "scale"))
-preprocessParams_test_bench <- preProcess(test_fact_bench, method=c("medianImpute", "center", "scale"))
-
-# Sets prontos para uso
-train_preproc <- predict(preprocessParams_train, train_fact)
-test_preproc <- predict(preprocessParams_test, test_fact)
-
-train_preproc_bench <- predict(preprocessParams_train_bench, train_fact_bench)
-test_preproc_bench <- predict(preprocessParams_test_bench, test_fact_bench)
-
-# Modelos
-control <- trainControl(method="cv", number=10)
-
-model1 <- train(price ~ .,
-                data = train_preproc,
-                method = "lm",
-                trControl = control,
-                metric = 'RMSE')
-
-plot(varImp(model1, scale=FALSE))
-
-control_rfe <- rfeControl(functions=lmFuncs, method="cv", number=10)
-# run the RFE algorithm
-results <- rfe(price ~ ., data = train_preproc, sizes=c(1:15), rfeControl=control_rfe)
-# summarize the results
-varImp(results, scale=FALSE)
-plot(results, type=c("g", "o"))
-
-# score modelo
-pred <- predict(model1, test_preproc)
-
-test_Score <-data.frame(obs = test_preproc$price, pred= pred)
-
-defaultSummary(test_Score)

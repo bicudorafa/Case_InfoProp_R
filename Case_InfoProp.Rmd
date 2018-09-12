@@ -90,7 +90,7 @@ leaflet(data = imoveis_clean) %>% addTiles() %>%
 ```
 
 
-A começar com uma visualização interativa dos imóveis no mapa da cidade, através do pacote leaflet, consegue-se obersvar uma série de 20 cooerdanas geográficas distantes da maioria das observações, configurando um ponto de interesse para se analisar com mais calma em seguida.
+A começar com uma visualização interativa dos imóveis no mapa da cidade, através do pacote leaflet, consegue-se obersvar uma série de 20 coordenadas geográficas distantes da maioria das observações, configurando um ponto de interesse para se analisar com mais calma em seguida.
 
 
 ```{r EDA 2}
@@ -167,7 +167,7 @@ Os valores de 'price', 'area' e 'condominium_fee', assim como vizualizados acima
 
 Para a construção de um modelo de precificação eficiente, tem-se de extrair o máximo de informação de cada uma das variáveis e, ao mesmo tempo, evitar o overfitting, portanto a construção de novas variáveis é um passo fundamental da análise.
 
-A começar por features já existentes, faz-se a agregação de algumas variáveis categóricas com o intuito de diminuir classes com pouca representatividade na amostra como visto nos gráficos de barra.
+A começar por features já existentes, faz-se a agregação de algumas variáveis categóricas com o intuito de diminuir classes com pouca representatividade na amostra como visto nos gráficos de barra. A ideia é evitar, além do overfitting, possíveis bugs na separação nos dados de treino e teste.
 
 
 ```{r FE1}
@@ -252,7 +252,7 @@ vars_agente <- imoveis_clean_agent %>% select(agent, anuncio_agente = total_a, v
 
 ## Etapa 5 - Dataframe Final para Análise
  
-Após terminar a construção de novas variáveis, prossegue-se às etapas de criação do modelo preditivo: excluir variáveis não relevantes, realizar as etapas de pré processamento e, por fim, executar a análise preditiva. Para inicar o trabalho, começarei pela junção das novas variáveis e exclusão das identificadoras, além de 'bairro' que, como visto ao longo de toda análise exploratória, possui variância muito baixa.
+Após terminar a construção de novas variáveis, prossegue-se às etapas de criação do modelo preditivo: excluir variáveis não relevantes, realizar as etapas de pré processamento e, por fim, executar a análise preditiva. Para iniciar o trabalho, começarei pela junção das novas variáveis e exclusão das identificadoras, além de 'bairro' que, como visto ao longo de toda análise exploratória, possui variância muito baixa.
 
 
 ```{r seleção}
@@ -270,8 +270,6 @@ glimpse(imoveis_final)
  
 
 Em seguida, prosseguir-se-á à separação dos dados em set de treino e teste. É sempre recomendável realizar essa ação antes de se executar qualquer trabalho preditivo para evitar qualquer tipo de viés de seleção. Ao longo de toda esta etapa, faremos uso do pacote de Machine Learnig Caret e seus componentes auxiliares como o mlbench. Também, vale ressaltar a criação de uma função que transforma, de forma automática, variáveis do tipo numeric a factor. 
-
-Para fins de comparação, far-se-á todo processo com o dataframe original para saber quanto de eficiência foi ganho com as etapas de preparação.
 
 
 ```{r train test}
@@ -301,11 +299,13 @@ test_fact <- toFactor(test_sample, fact_vars_final)
 ## Etapa 6 - Modelo Preditivo
 
 
-Chega-se à parte mais relevante do trabalho: construção do modelo, seleção das melhores variáveis, e constatação de seu poder preditivo. A primeira etapa consiste na preparação dos dados através da padronização das variáveis contínuas, e o tratamento dos valores NA. Como há muita informação com algum valor faltante e não há a possibilidade de determinar o motivo de seus não aparecimentos, procederei com um método de imputação a partir do algorítmo de KNN. Logo em seguida, parte-se à contrução do primeiro modelo e à análise das variáveis mais importantes. Vale resaltar no uso do parâmetro de controle, com a escolha da 10 validações cruzadas, com o intuito de eliminar ainda mais riscos de overfitting dos parâmetros.
+Chega-se à parte mais relevante do trabalho: construção do modelo preditivo linear para precificação de imóveis. Para se alcançar o objetivo, faz-se o pré processamento dos dados, estudo da importância das variáveis e obtenção do melhor modelo linear.
+
+A primeira etapa consistirá na preparação dos dados através da padronização das variáveis contínuas, e o tratamento dos valores NA. Como há muita informação com algum valor faltante e não há a possibilidade de determinar o motivo de seus não aparecimentos, procederei com um método de imputação a partir do algorítmo de KNN. Logo em seguida, parte-se à contrução do primeiro modelo e à análise das variáveis mais importantes. Vale resaltar no uso do parâmetro de controle, com a escolha da 10 validações cruzadas, com o intuito de eliminar ainda mais riscos de overfitting dos parâmetros.
 
 
 
-```{r modelo, results = "hide", warning = FALSE}
+```{r preProcess}
 # Pré processadores
 preprocessParams_train <- preProcess(train_fact, method=c("knnImpute", "center", "scale"))
 preprocessParams_test <- preProcess(test_fact, method=c("knnImpute", "center", "scale"))
@@ -314,38 +314,62 @@ preprocessParams_test <- preProcess(test_fact, method=c("knnImpute", "center", "
 train_preproc <- predict(preprocessParams_train, train_fact)
 test_preproc <- predict(preprocessParams_test, test_fact)
 
-# Controle
+```
+
+
+Com os dataframes prontos para análise, a próxima etapa será o rankiamento das melhores variáveis do modelo, quanto é a importância de cada uma para melhorar a eficácia e quais devem ou não ser eliminadas ao final. Para isso, usa-se o método de eliminação recursiva. Abaixo, consegue se observar como cada variável agrega ao modelo e quais as mais importantes.
+
+
+```{r rfe}
+# RFE
+control_rfe <- rfeControl(functions=lmFuncs, method="cv", number=10)
+results <- rfe(price ~ ., data = train_preproc, sizes=c(1:15), rfeControl=control_rfe)
+varImp(results, scale=FALSE)
+plot(results, type=c("g", "o"))
+```
+
+Assim como visto acima, mesmo com o alto número de variáveis, todas contribuem de forma positiva para a melhorar acurácia do modelo, além de que a 2a variável mais importante foi a construída 'valores_condo', portanto o algorítmo sugere o uso de todas as variáveis para o melhor resultado possível. Para fins de comparação e certificação, 2 modelos serão construídos: um com as variáveis originais, e outro com criadas. Ambas serão comparadas na performance com os dados de treino e teste, além de usarem o mesmo número de validações cruzadas (FALTOU COLOCAR VALIDAÇÕES CRUZADAS IGUAIS COM ÍNDICE)
+
+```{r modelos e score}
+# Comparação entre modelo com features originais x  + criadas
+
+# Controle para todos os modelos
 control <- trainControl(method="cv", number=10)
 
-# Modelo
-model1 <- train(price ~ .,
+# modelo com as originais
+model1 <- train(price ~ 
+                  area +
+                  condominium_fee +
+                  iptu +
+                  rooms_coerc +
+                  bathrooms_coerc +
+                  garage_coerc,
                 data = train_preproc,
                 method = "lm",
                 trControl = control,
                 metric = 'RMSE')
 
-plot(varImp(model1, scale=FALSE))
-```
+# modelo com as features criadas
+model2 <- train(price ~ .,
+                  data = train_preproc,
+                  method = "lm",
+                  trControl = control,
+                  metric = 'RMSE')
 
-Assim como visto acima, as variáveis com maior poder explicativo são o número de garagens, uma das variaveis criadas e a taxa paga de condomínio. No entanto, para ter plena certeza qual a melhor combinação a ser usada, usarei mão de um modelo de seleção recursivo baseado em modelos lineares.
+# Comparação gráfica dos 2 modelos
+model_list <- list(Originais = model1, Originais_eNovas = model2)
+resamples <- resamples(model_list)
+dotplot(resamples, metric = 'RMSE')
 
+# score dos modelos
+pred1 <- predict(model1, test_preproc)
+pred2 <- predict(model2, test_preproc)
 
-```{r rfe}
-control_rfe <- rfeControl(functions=lmFuncs, method="cv", number=10)
-# run the RFE algorithm
-results <- rfe(price ~ ., data = train_preproc, sizes=c(1:15), rfeControl=control_rfe)
-# summarize the results
-varImp(results, scale=FALSE)
-plot(results, type=c("g", "o"))
-```
+test_Score1 <-data.frame(obs = test_preproc$price, pred= pred1)
+test_Score2 <-data.frame(obs = test_preproc$price, pred= pred2)
 
-Assim como visto acima, mesmo com o alto número de variáveis, todas contribuem de forma positiva para a melhor acurácia do modelo, portanto não necessitando de uma nova seleção e construção de novo treino. Por fim usaremos a mesma métrica utilizada para selecionar as melhores variáveis para validar quão bem o modelo se ajusta aos dados de teste.
-
-```{r rmse}
-# score modelo
-pred <- predict(model1, test_preproc)
-modelvalues<-data.frame(obs = test_preproc$price, pred= pred)
-defaultSummary(modelvalues)
+defaultSummary(test_Score1)
+defaultSummary(test_Score2)
 ```
 
 
