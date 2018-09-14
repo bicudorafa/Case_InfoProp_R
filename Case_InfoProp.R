@@ -82,6 +82,8 @@ for (var in fact_vars) {
   print(plots_fact_c[[var]])
 }
 
+### plots importantes não feitos nesta análise: há correlação entre aparições muito grandes de valores NA? Sâo sistêmicos?
+
 ## Investigacao outliers
 # imoveis_clean %>% filter(property_d %in% c(53512644, 83712188, 80671730))
 imoveis_clean %>% filter(log(area) > 10 | log(price) < 10 | log(condominium_fee) > 10)
