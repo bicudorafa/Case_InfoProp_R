@@ -1,5 +1,6 @@
 ### Abertura e inspecao do df
 
+# Pacotes necessários
 library(dplyr)
 library(stringr)
 library(lubridate)

@@ -7,7 +7,7 @@ library(xgboost)
 set.seed(666)
 
 ## separação das amostras de treino e teste
-sample <- createDataPartition(imoveis_final$price, times = 1, list = F, p = .7)
+sample <- createDataPartition(imoveis_final$price, list = F, p = .7)
 train_sample <- imoveis_final[sample, ]
 test_sample <- imoveis_final[-sample, ]
 
@@ -102,3 +102,8 @@ model2 <- train(price ~ .,
                 method = "lm",
                 trControl = control,
                 metric = 'RMSE')
+
+
+# Descobertas:
+# scale do vtreat usa um método Y-Aware PCA, algo muito rebuscado, de difícil comparação e com poucas fontes na internet.
+# procedimento: vtreat possui um ótimo sistema de one hot encoding, então vou usá-lo e, em seguida, scalo as variáveis
