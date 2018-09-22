@@ -223,8 +223,6 @@ vars_rua <- imoveis_clean_rua %>% select(rua, anuncio_rua = total_a, valores_rua
 vars_condo <- imoveis_clean_condominio %>% select(condominio, anuncio_condo = total_a, valores_condo = media_p)  
 vars_agente <- imoveis_clean_agent %>% select(agent, anuncio_agente = total_a, valores_agente = media_p) 
 
-### Modelo preditivo
-
 # df final para analise e com variaveis novas
 imoveis_final <- imoveis_clean %>%
   left_join(roomsBathGarage, by = c('property_d')) %>% 
