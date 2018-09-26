@@ -2,8 +2,8 @@
 
 # Carregando Pacotes Necessários
 library(dplyr)
-library(tidyr)
 library(mlr)
+library(iml)
 library(ggplot2)
 set.seed(666)
 # Função mais eficiente para featurização
@@ -89,7 +89,7 @@ tuned_params <- tuneParams(
   learner = xgb_model,
   task = task_train,
   resampling = resample_desc,
-  measures = rsq,       # R-Squared performance measure, this can be changed to one or many
+  measures = rmse,       # R-Squared performance measure, this can be changed to one or many
   par.set = xgb_params,
   control = control
 )
@@ -119,17 +119,25 @@ comparacao <- data_frame(pred_lm = pred_lm[['data']][['response']], pred_xgb = p
 
 # Plot predictions (on x axis) vs actual bike rental count
 comparacao %>%
-  gather(tipo, valor, price, pred_lm, pred_xgb) %>%
+  tidyr::gather(tipo, valor, price, pred_lm, pred_xgb) %>%
   filter(!(tipo == 'pred_xgb')) %>% 
   ggplot(aes(valor, fill = tipo)) +
+  ggtitle('LM') +
   geom_density(alpha = .5)
 
 comparacao %>%
-  gather(tipo, valor, price, pred_lm, pred_xgb) %>%
+  tidyr::gather(tipo, valor, price, pred_lm, pred_xgb) %>%
   filter(!(tipo == 'pred_lm')) %>% 
   ggplot(aes(valor, fill = tipo)) +
+  ggtitle('LM') +
   geom_density(alpha = .5)
 
-# Features mais relevantes
-mif = generateFilterValuesData(task_test, method =
-                                 c("randomForestSRC.rfsrc"))
+# usando Predictor$new() para criar um plot das features mais importantes
+X = getTaskData(task_train)[getTaskFeatureNames(task_train)]
+predictor = Predictor$new(XGBoost, data = X, y = getTaskData(task_train)['price'])
+imp = FeatureImp$new(predictor, loss = "rmse")
+plot(imp)
+
+# Plot de como a variável mais importante afeta as previsões na média
+pdp_area = Partial$new(predictor, feature = "area")
+plot(pdp_area)

@@ -11,7 +11,7 @@ knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
 
 ## Business Case - InfoProp
 
-O objetivo deste trabalho é realizar uma análise minuciosa de dados imobiliários da cidade de São Paulo no ano de 2017. Através da limpeza e a vizualização dos relacionamentos entre as variáveis disponíves, a ideia é tentar captar insights importantes e, em seguida, construir um modelo de precificação baseado nas informações encontradas.
+O objetivo deste trabalho é realizar uma análise minuciosa em dados imobiliários da cidade de São Paulo no ano de 2017. Através da limpeza e a vizualização dos relacionamentos entre as variáveis disponíves, a ideia é tentar captar insights importantes e, em seguida, construir um modelo de precificação baseado nas informações encontradas.
 
 ## Etapa 1 - Coleta dos Dados
 
@@ -41,6 +41,9 @@ imoveis_clean = imoveis
 # Pacotes necessários
 library(stringr)
 library(lubridate)
+
+# data
+imoveis_clean  <-  imoveis
 
 # data
 names(imoveis_clean) <- str_replace(names(imoveis_clean), 'X.U.FEFF.date', 'Data')
@@ -146,7 +149,7 @@ Nesta seção, realizaremos um breve estudo dos outliers identificados ao longo 
 
 ```{r outliers}
 ## Investigacao outliers
-imoveis_clean %>% filter(log(area) > 10 | log(price) < 10 | log(condominium_fee) > 10)
+imoveis_clean %>% filter(log(area) > 10 | log(price) < 10 | log(condominium_fee) > 10) 
 imoveis_clean %>% filter(bathrooms == 54)
 
 # outliers de area e price: informações muito discrepantes em relação à realidade. Provavelmente, erros de digitação
@@ -167,16 +170,17 @@ Os valores de 'price', 'area' e 'condominium_fee', assim como vizualizados acima
 
 Para a construção de um modelo de precificação eficiente, tem-se de extrair o máximo de informação de cada uma das variáveis e, ao mesmo tempo, evitar o overfitting, portanto a construção de novas variáveis é um passo fundamental da análise.
 
-A começar por features já existentes, faz-se a agregação de algumas variáveis categóricas com o intuito de diminuir classes com pouca representatividade na amostra como visto nos gráficos de barra. A ideia é evitar, além do overfitting, possíveis bugs na separação nos dados de treino e teste.
+A começar por features já existentes, faz-se a agregação de algumas variáveis categóricas com o intuito de diminuir classes com pouca representatividade na amostra como visto nos gráficos de barra. A ideia é evitar o overfitting.
 
 
 ```{r FE1}
 # agregação dos valores para não causar overfitting pela baixa quantidade de valores
 roomsBathGarage <- imoveis_clean %>% 
-  select(c(rooms, bathrooms, garage)) %>% 
+  select(c(rooms, bathrooms, garage, property_d)) %>% 
   mutate(rooms_coerc = ifelse(rooms > 4, 4, rooms),
          bathrooms_coerc = ifelse(bathrooms > 6, 6, bathrooms),
-         garage_coerc = ifelse(garage > 5, 5, garage))
+         garage_coerc = ifelse(garage > 5, 5, garage)) %>% 
+  select(-c(rooms, bathrooms, garage))
 ```
 
 
@@ -252,10 +256,10 @@ vars_agente <- imoveis_clean_agent %>% select(agent, anuncio_agente = total_a, v
 
 ## Etapa 5 - Dataframe Final para Análise
  
-Após terminar a construção de novas variáveis, prossegue-se às etapas de criação do modelo preditivo: excluir variáveis não relevantes, realizar as etapas de pré processamento e, por fim, executar a análise preditiva. Para iniciar o trabalho, começarei pela junção das novas variáveis e exclusão das identificadoras, além de 'bairro' que, como visto ao longo de toda análise exploratória, possui variância muito baixa.
+Após terminar a construção de novas variáveis, prossegue-se às etapas de criação do dataset final para análise. Começarei pela junção das novas variáveis, e exclusão das identificadoras, além de 'bairro' que, como visto ao longo de toda análise exploratória, possui variância quase inexistente.
 
 
-```{r seleção}
+```{r imoveis_final}
 # df final para analise e com variaveis novas
 imoveis_final <- imoveis_clean %>%
   left_join(roomsBathGarage) %>% 
@@ -269,108 +273,191 @@ glimpse(imoveis_final)
 ```
  
 
-Em seguida, prosseguir-se-á à separação dos dados em set de treino e teste. É sempre recomendável realizar essa ação antes de se executar qualquer trabalho preditivo para evitar qualquer tipo de viés de seleção. Ao longo de toda esta etapa, faremos uso do pacote de Machine Learnig Caret e seus componentes auxiliares como o mlbench. Também, vale ressaltar a criação de uma função que transforma, de forma automática, variáveis do tipo numeric a factor. 
+Em seguida, prosseguir-se-á "fatorização" do dataframe, ou seja, transformação das variáveis categóricas para o formato factor
 
 
-```{r train test}
+```{r imoveis_factor}
+# Função mais eficiente para featurização
+imoveis_fact <- imoveis_final %>%
+  mutate_at(
+    .vars = vars('rooms_coerc', 'bathrooms_coerc','garage_coerc'),
+    .funs = funs(as.factor(.))
+  )
 
-library(caret)
-library(mlbench)
-set.seed(666)
-
-sample <- createDataPartition(imoveis_final$price, times = 1, list = F, p = .8)
-train_sample <- imoveis_final[sample, ]
-test_sample <- imoveis_final[-sample, ]
-
-# funcao para transformar variaveis em fact
-toFactor <- function(df, features) {
-  for (feature in features) {
-    df[[feature]] <- factor(df[[feature]], exclude = NULL)
-  }
-  return(df)
-}
-
-fact_vars_final <- c('rooms', 'bathrooms','garage')
-train_fact <- toFactor(train_sample, fact_vars_final)
-test_fact <- toFactor(test_sample, fact_vars_final)
+glimpse(imoveis_fact)
 ```
 
 
-## Etapa 6 - Modelo Preditivo
+## Etapa 6 - Modelos Preditivos
 
 
-Chega-se à parte mais relevante do trabalho: construção do modelo preditivo linear para precificação de imóveis. Para se alcançar o objetivo, faz-se o pré processamento dos dados, estudo da importância das variáveis e obtenção do melhor modelo linear.
+Chega-se à parte mais relevante do trabalho: construção do modelo preditivo para precificação de imóveis. O pacote escolhido para a tarefa foi o "mlr". Atualmente, um dos pacotes mais utilizados por usuários da linguagem, possui muitas opções de customização e facilidade de aplicação.
 
-A primeira etapa consistirá na preparação dos dados através da padronização das variáveis contínuas, e o tratamento dos valores NA. Como há muita informação com algum valor faltante e não há a possibilidade de determinar o motivo de seus não aparecimentos, procederei com um método de imputação a partir do algorítmo de KNN. Logo em seguida, parte-se à contrução do primeiro modelo e à análise das variáveis mais importantes. Vale resaltar no uso do parâmetro de controle, com a escolha da 10 validações cruzadas, com o intuito de eliminar ainda mais riscos de overfitting dos parâmetros.
-
+A primeira etapa consistirá na preparação dos dados através da padronização das variáveis contínuas, o tratamento dos valores missing e o processo conhecido como "One Hot Encoding", ou seja, transformação das variáveis factor em dummies por levels. 
 
 
 ```{r preProcess}
-# Pré processadores
-preprocessParams_train <- preProcess(train_fact, method=c("knnImpute", "center", "scale"))
-preprocessParams_test <- preProcess(test_fact, method=c("knnImpute", "center", "scale"))
+## Pacote MLR
 
-# Dfs transformados
-train_preproc <- predict(preprocessParams_train, train_fact)
-test_preproc <- predict(preprocessParams_test, test_fact)
+# Pacote
+library(mlr)
+set.seed(666)
+
+# Imputador dos valores missing
+imp <- impute(
+  imoveis_fact,
+  classes = list(
+    factor = imputeMode(),
+    integer = imputeMean(),
+    numeric = imputeMean()
+  )
+)
+imoveis_imp <- imp$data
+
+# Sumarizando as colunas
+summarizeColumns(imoveis_imp) %>%
+  knitr::kable(digits = 2) # gerador de tabelas muito prático do knitr
+
+# Normalização
+imoveis_norm <- normalizeFeatures(imoveis_imp, target = "price")
+
+# One hot encoding
+imoveis_preProc <- createDummyFeatures(
+  imoveis_norm, target = "price",
+  cols = c(
+    "rooms_coerc",
+    "bathrooms_coerc",
+    "garage_coerc"
+  )
+)
 
 ```
 
 
-Com os dataframes prontos para análise, a próxima etapa será o rankiamento das melhores variáveis do modelo, quanto é a importância de cada uma para melhorar a eficácia e quais devem ou não ser eliminadas ao final. Para isso, usa-se o método de eliminação recursiva. Abaixo, consegue se observar como cada variável agrega ao modelo e quais as mais importantes.
+Com os dados preparados para análise, cria-se o objeto básico utilizado neste pacote: task (no caso, uma task específica para regressão). A partir dele, faz-se a separação hold-out (treino x teste)
 
 
-```{r rfe}
-# RFE
-control_rfe <- rfeControl(functions=lmFuncs, method="cv", number=10)
-results <- rfe(price ~ ., data = train_preproc, sizes=c(1:15), rfeControl=control_rfe)
-varImp(results, scale=FALSE)
-plot(results, type=c("g", "o"))
+```{r hold-out}
+# Criação do Task para Regressão (objeto usado nas operações do pacote)
+task <- makeRegrTask(id = 'Imoveis_SP', data = imoveis_preProc, target = 'price')
+
+# train test split (holdout é o método de resample de separar em train/test)
+holdout <- makeResampleInstance('Holdout', task)
+task_train <- subsetTask(task, holdout$train.inds[[1]])
+task_test <- subsetTask(task, holdout$test.inds[[1]])
+
 ```
 
-Assim como visto acima, mesmo com o alto número de variáveis, todas contribuem de forma positiva para a melhorar acurácia do modelo, além de que a 2a variável mais importante foi a construída 'valores_condo', portanto o algorítmo sugere o uso de todas as variáveis para o melhor resultado possível. Para fins de comparação e certificação, 2 modelos serão construídos: um com as variáveis originais, e outro com criadas. Ambas serão comparadas na performance com os dados de treino e teste, além de usarem o mesmo número de validações cruzadas (FALTOU COLOCAR VALIDAÇÕES CRUZADAS IGUAIS COM ÍNDICE)
+
+Com os objetos criados, pode-se iniciar o treinamento dos modelos. Serão usados 2 neste trabalho: um linear simples sem qualquer tipo de tratamento, para se usar como benchmark, e um XGBoost usando validações cruzadas e tunagem de hiper-parâmetros. A escolha do modelo deveu-se pelas relações não lineares entre as variáveis númericas, e seu sistema de uso de gradiente para minimização dos resíduos. 5 validações cruzadas serão utilizadas para evitar o overfitting e a série de hiper-parâmetros escolhidos para tunagem podem ter sua explicação melhor desenvolvida em https://github.com/dmlc/xgboost. 
+
 
 ```{r modelos e score}
-# Comparação entre modelo com features originais x  + criadas
+## Modelo linear básico
 
-# Controle para todos os modelos
-control <- trainControl(method="cv", number=10)
+# modelo padrão linear
+regr.lm <- makeLearner(id = 'lm', 'regr.lm')
 
-# modelo com as originais
-model1 <- train(price ~ 
-                  area +
-                  condominium_fee +
-                  iptu +
-                  rooms_coerc +
-                  bathrooms_coerc +
-                  garage_coerc,
-                data = train_preproc,
-                method = "lm",
-                trControl = control,
-                metric = 'RMSE')
+# treinamento modelo
+lm <- train(regr.lm, task_train)
 
-# modelo com as features criadas
-model2 <- train(price ~ .,
-                  data = train_preproc,
-                  method = "lm",
-                  trControl = control,
-                  metric = 'RMSE')
+## XGBoost
 
-# Comparação gráfica dos 2 modelos
-model_list <- list(Originais = model1, Originais_eNovas = model2)
-resamples <- resamples(model_list)
-dotplot(resamples, metric = 'RMSE')
+# Criação do modelo simples
+xgb_model <- makeLearner("regr.xgboost")
 
-# score dos modelos
-pred1 <- predict(model1, test_preproc)
-pred2 <- predict(model2, test_preproc)
+# Grid de alguns parâmetros
+xgb_params <- makeParamSet(
+  # The number of trees in the model (each one built sequentially)
+  makeIntegerParam("nrounds", lower = 100, upper = 2000),
+  # number of splits in each tree
+  makeIntegerParam("max_depth", lower = 1, upper = 10),
+  # "shrinkage" - prevents overfitting
+  makeNumericParam("eta", lower = .1, upper = .5),
+  # L2 regularization - prevents overfitting
+  makeNumericParam("lambda", lower = -1, upper = 0, trafo = function(x) 10^x)
+)
 
-test_Score1 <-data.frame(obs = test_preproc$price, pred= pred1)
-test_Score2 <-data.frame(obs = test_preproc$price, pred= pred2)
+# Controle da tunagem randômica
+control <- makeTuneControlRandom(maxit = 1) # maxit represente tempo máximo de 1 min para iterações
 
-defaultSummary(test_Score1)
-defaultSummary(test_Score2)
+# Plano de resampling
+resample_desc <- makeResampleDesc("CV", iters = 5)
+
+# tunador dos hiper parâmetros
+tuned_params <- tuneParams(
+  learner = xgb_model,
+  task = task_train,
+  resampling = resample_desc,
+  measures = rmse,       # R-Squared performance measure, this can be changed to one or many
+  par.set = xgb_params,
+  control = control
+)
+
+# Modelo tunado
+xgb_tuned_model <- setHyperPars(
+  learner = xgb_model,
+  par.vals = tuned_params$x
+)
+
+# Verificação da performance do modelo tunado usando as validações cruzadas usadas para tunagem
+resample(xgb_tuned_model,task_train,resample_desc,measures = list(rmse, rsq))
+
+# Treinamento
+XGBoost <- train(xgb_tuned_model, task_train)
 ```
 
+
+## Etapa 7 - Visualização dos Resultados
+
+
+Agora, com os modelos devidamente treinadss, podemos fazer as comparações dos resultados, quais variáveis possuem maior efeito e como é a sua influência nas previsões. A começar pela performance nos dados de teste, faz-se uma comparação de 2 indicadores de qualidade das previsões juntamente a uma ilustrativa.
+
+
+```{r performance test}
+# predição nos dados de teste
+pred_lm <- predict(lm, task_test)
+performance(pred_lm, measures = list(rmse, rsq))
+
+pred_xgb <- predict(XGBoost, task_test)
+performance(pred_xgb, measures = list(rmse, rsq))
+
+## Análise dos dados fitted e feature importance
+comparacao <- data_frame(pred_lm = pred_lm[['data']][['response']], pred_xgb = pred_xgb[['data']][['response']],
+                         price = getTaskData(task_test)[['price']])
+
+# Plot predictions (on x axis) vs actual bike rental count
+comparacao %>%
+  tidyr::gather(tipo, valor, price, pred_lm, pred_xgb) %>%
+  filter(!(tipo == 'pred_xgb')) %>% 
+  ggplot(aes(valor, fill = tipo)) +
+  ggtitle('LM') +
+  geom_density(alpha = .5)
+
+comparacao %>%
+  tidyr::gather(tipo, valor, price, pred_lm, pred_xgb) %>%
+  filter(!(tipo == 'pred_lm')) %>% 
+  ggplot(aes(valor, fill = tipo)) +
+  ggtitle('LM') +
+  geom_density(alpha = .5)
+
+```
+
+Como demonstrado acima, e já esperado, o modelo xgbost apresentou índices superiores nos indicadores, além de, visualmente, ter uma aderência maior aos dados de teste. Portnato, para encerramento da análise, usarei o pacote 'iml', recomendado pelos criadores do 'mlr', para aumentar a compreensão desse modelo mais complexo. Primeiro, descobrindo qual a importância de cada uma das features e, em seguida, como os valores da mais importante influenciam os valores previstos pelo modelo.
+
+
+```{r iml}
+# Pacote
+library(iml)
+# usando Predictor$new() para criar um plot das features mais importantes
+X = getTaskData(task_train)[getTaskFeatureNames(task_train)]
+predictor = Predictor$new(XGBoost, data = X, y = getTaskData(task_train)['price'])
+imp = FeatureImp$new(predictor, loss = "rmse")
+plot(imp)
+
+# Plot de como a variável mais importante afeta as previsões na média
+pdp_area = Partial$new(predictor, feature = "area")
+plot(pdp_area)
+```
 
 ## FIM
